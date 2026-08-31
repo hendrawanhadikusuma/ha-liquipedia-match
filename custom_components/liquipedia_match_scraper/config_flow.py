@@ -6,10 +6,13 @@ from urllib.parse import parse_qs, urlparse
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import OptionsFlowWithReload
+from homeassistant.config_entries import OptionsFlow
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import ConfigFlowResult
+try:
+    from homeassistant.data_entry_flow import ConfigFlowResult
+except ImportError:  # pragma: no cover - compatibility with older Home Assistant versions
+    from homeassistant.data_entry_flow import FlowResult as ConfigFlowResult
 
 from .const import CONF_GMT_OFFSET, CONF_TEAM_URL, DEFAULT_GMT_OFFSET, DOMAIN
 from .time_utils import normalize_gmt_offset
@@ -95,11 +98,11 @@ class LiquipediaMatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> OptionsFlowWithReload:
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> OptionsFlow:
         return LiquipediaMatchOptionsFlow(config_entry)
 
 
-class LiquipediaMatchOptionsFlow(OptionsFlowWithReload):
+class LiquipediaMatchOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
 
