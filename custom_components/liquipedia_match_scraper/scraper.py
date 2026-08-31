@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 
+from .time_utils import normalize_gmt_offset, timestamp_to_iso
+
 _LOGGER = logging.getLogger(__name__)
 
 _REQUEST_HEADERS = {
@@ -54,11 +56,12 @@ class LiquipediaMatchData:
 
 
 class LiquipediaMatchScraper:
-    def __init__(self, session: ClientSession, team_url: str, score_url: str | None = None) -> None:
+    def __init__(self, session: ClientSession, team_url: str, score_url: str | None = None, gmt_offset: str | None = None) -> None:
         self.session = session
         self.team_url = team_url.strip()
         self.team_location = self._parse_url(self.team_url)
         self.score_location = self._parse_url(score_url.strip()) if score_url else None
+        self.gmt_offset = normalize_gmt_offset(gmt_offset)
 
     async def async_fetch(self) -> LiquipediaMatchData:
         team_html = None
@@ -99,7 +102,6 @@ class LiquipediaMatchScraper:
             None,
             self.team_location["page_url"],
         )
-        score_title = self.score_location["page_title"] if self.score_location else (selected_upcoming.get("tournament") if selected_upcoming else self.team_location["page_title"])
 
         score_url = self.score_location["page_url"] if self.score_location else None
         score_location = self.score_location
@@ -110,6 +112,35 @@ class LiquipediaMatchScraper:
                 score_url = score_location["page_url"]
             except ValueError:
                 score_location = None
+
+        overview_location = self._overview_location(score_location)
+        overview_html = None
+
+        if overview_location:
+            for candidate in (
+                self._api_url(overview_location["page_slug"], overview_location["game_slug"]),
+                overview_location["page_url"],
+            ):
+                try:
+                    overview_html = await self._fetch_html(candidate)
+                    if overview_html:
+                        break
+                except Exception as err:  # pragma: no cover - defensive fallback path
+                    last_error = err
+                    _LOGGER.debug("Liquipedia overview fetch failed for %s: %s", candidate, err)
+
+        overview_soup = BeautifulSoup(overview_html or "", "html.parser") if overview_html else None
+
+        score_title = (
+            self._extract_page_title(overview_soup)
+            if overview_soup
+            else (
+                score_location["page_title"]
+                if score_location
+                else (selected_upcoming.get("tournament") if selected_upcoming else self.team_location["page_title"])
+            )
+        )
+        overview_venue = self._extract_overview_venue(overview_soup) if overview_soup else None
 
         if score_location:
             for candidate in (
@@ -151,7 +182,7 @@ class LiquipediaMatchScraper:
             "team_score": None,
             "opponent_score": None,
             "date": None,
-            "venue": None,
+            "venue": overview_venue,
             "tournament": None,
             "summary": None,
             "match_url": None,
@@ -165,15 +196,20 @@ class LiquipediaMatchScraper:
                     "opponent_name": selected_upcoming.get("opponent"),
                     "opponent_logo": selected_upcoming.get("opponent_logo"),
                     "team_logo": selected_upcoming.get("team_logo") or merged.get("team_logo"),
-                    "date": selected_upcoming.get("datetime_text"),
-                    "venue": selected_upcoming.get("venue"),
+                    "date": selected_upcoming.get("datetime_iso") or selected_upcoming.get("datetime_text"),
+                    "venue": overview_venue or selected_upcoming.get("venue"),
                     "tournament": selected_upcoming.get("tournament"),
                     "summary": selected_upcoming.get("summary"),
                 }
             )
 
         if score_match:
-            merged.update({key: value for key, value in score_match.items() if value is not None})
+            for key, value in score_match.items():
+                if value is None:
+                    continue
+                if key in {"date", "venue", "team_logo"} and merged.get(key):
+                    continue
+                merged[key] = value
 
         entity_picture = self._select_entity_picture(
             merged.get("team_logo"),
@@ -339,6 +375,58 @@ class LiquipediaMatchScraper:
                     source = srcset.split(",")[0].strip().split(" ")[0]
             if source:
                 return urljoin(base_url, source)
+
+        return None
+
+    def _overview_location(self, score_location: dict[str, str] | None) -> dict[str, str] | None:
+        if not score_location:
+            return None
+
+        page_slug = score_location.get("page_slug") or ""
+        if "/" not in page_slug:
+            return None
+
+        parent_slug = page_slug.rsplit("/", maxsplit=1)[0]
+        if not parent_slug:
+            return None
+
+        game_slug = score_location.get("game_slug")
+        if not game_slug:
+            return None
+
+        return {
+            "game_slug": game_slug,
+            "page_slug": parent_slug,
+            "page_title": parent_slug.replace("_", " ").replace("-", " ").strip(),
+            "page_url": f"https://liquipedia.net/{game_slug}/{parent_slug}",
+            "section_hint": score_location.get("section_hint") or "",
+        }
+
+    def _extract_overview_venue(self, soup: BeautifulSoup | None) -> str | None:
+        if not soup:
+            return None
+
+        for description in soup.select(".infobox-description"):
+            if self._normalize_key(description.get_text(" ", strip=True)) != self._normalize_key("Venue"):
+                continue
+
+            container = description.find_parent("div")
+            if not container:
+                continue
+
+            value_container = container.find_next_sibling("div")
+            if not value_container:
+                continue
+
+            link = value_container.select_one("a.external.text, a.external, a[href]")
+            if link:
+                value = self._clean_text(link.get_text(" ", strip=True))
+                if value:
+                    return value
+
+            text = self._clean_text(value_container.get_text(" ", strip=True))
+            if text:
+                return text
 
         return None
 
@@ -538,6 +626,17 @@ class LiquipediaMatchScraper:
             tournament = self._text(item.select_one(".match-info-tournament")) if item.select_one(".match-info-tournament") else None
             datetime_node = item.select_one(".match-info-countdown")
             datetime_text = self._text(datetime_node) if datetime_node else None
+            datetime_timestamp = None
+            datetime_iso = None
+            if datetime_node:
+                timestamp_value = datetime_node.select_one(".timer-object")
+                if timestamp_value and timestamp_value.get("data-timestamp"):
+                    try:
+                        datetime_timestamp = float(timestamp_value.get("data-timestamp"))
+                        datetime_iso = timestamp_to_iso(datetime_timestamp, self.gmt_offset)
+                    except ValueError:
+                        datetime_timestamp = None
+                        datetime_iso = None
             stage_node = item.select_one(".match-info-stage")
             stage = self._text(stage_node) if stage_node else None
 
@@ -550,6 +649,8 @@ class LiquipediaMatchScraper:
             upcoming_matches.append(
                 {
                     "datetime_text": datetime_text,
+                    "datetime_timestamp": datetime_timestamp,
+                    "datetime_iso": datetime_iso,
                     "tournament": tournament,
                     "venue": stage or tournament,
                     "team_name": home_name,

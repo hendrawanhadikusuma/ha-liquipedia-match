@@ -31,6 +31,9 @@ Use only the team URL:
 team_url: https://liquipedia.net/mobilelegends/RRQ_Hoshi
 ```
 
+You can also set the match timezone offset from the integration options. The
+`date` attribute is converted into ISO-8601 using that GMT offset.
+
 The sensor will expose fields like:
 
 ```yaml

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import OptionsFlowWithReload
 from homeassistant.const import CONF_NAME
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import ConfigFlowResult
 
-from .const import CONF_TEAM_URL, DOMAIN
+from .const import CONF_GMT_OFFSET, CONF_TEAM_URL, DEFAULT_GMT_OFFSET, DOMAIN
+from .time_utils import normalize_gmt_offset
 
 
 def parse_liquipedia_url(url: str) -> dict[str, str]:
@@ -52,12 +57,13 @@ def parse_liquipedia_url(url: str) -> dict[str, str]:
 class LiquipediaMatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):
-        errors = {}
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
                 team = parse_liquipedia_url(user_input[CONF_TEAM_URL])
+                gmt_offset = normalize_gmt_offset(user_input.get(CONF_GMT_OFFSET), default=DEFAULT_GMT_OFFSET)
             except ValueError as err:
                 errors["base"] = str(err)
             else:
@@ -74,13 +80,45 @@ class LiquipediaMatchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_TEAM_URL: user_input[CONF_TEAM_URL].strip(),
                         "team": team,
                     },
+                    options={CONF_GMT_OFFSET: gmt_offset},
                 )
 
         schema = vol.Schema(
             {
                 vol.Required(CONF_TEAM_URL): str,
                 vol.Optional(CONF_NAME): str,
+                vol.Optional(CONF_GMT_OFFSET, default=DEFAULT_GMT_OFFSET): str,
             }
         )
 
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> OptionsFlowWithReload:
+        return LiquipediaMatchOptionsFlow(config_entry)
+
+
+class LiquipediaMatchOptionsFlow(OptionsFlowWithReload):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                gmt_offset = normalize_gmt_offset(user_input.get(CONF_GMT_OFFSET), default=DEFAULT_GMT_OFFSET)
+            except ValueError as err:
+                errors["base"] = str(err)
+            else:
+                return self.async_create_entry(data={CONF_GMT_OFFSET: gmt_offset})
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_GMT_OFFSET, default=DEFAULT_GMT_OFFSET): str,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(schema, self.config_entry.options),
+            errors=errors,
+        )

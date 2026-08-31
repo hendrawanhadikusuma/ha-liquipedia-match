@@ -6,6 +6,9 @@ DOMAIN = "liquipedia_match_scraper"
 
 CONF_TEAM_URL = "team_url"
 CONF_SCORE_URL = "score_url"
+CONF_GMT_OFFSET = "gmt_offset"
+
+DEFAULT_GMT_OFFSET = "+07:00"
 
 DEFAULT_SCAN_INTERVAL = timedelta(minutes=5)
 
