@@ -36,6 +36,7 @@ class LiquipediaMatchData:
     team_url: str
     score_url: str
     score_section: str | None
+    score_title: str | None = None
     entity_picture: str | None = None
     team_logo: str | None = None
     opponent_name: str | None = None
@@ -80,6 +81,7 @@ class LiquipediaMatchScraper:
                 team_url=self.team_location["page_url"],
                 score_url=self.score_location["page_url"] if self.score_location else self.team_location["page_url"],
                 score_section=self.score_location["section_hint"] if self.score_location else None,
+                score_title=self.score_location["page_title"] if self.score_location else self.team_location["page_title"],
                 entity_picture=None,
                 error=str(last_error) if last_error else "Unable to fetch Liquipedia pages",
             )
@@ -97,6 +99,7 @@ class LiquipediaMatchScraper:
             None,
             self.team_location["page_url"],
         )
+        score_title = self.score_location["page_title"] if self.score_location else (selected_upcoming.get("tournament") if selected_upcoming else self.team_location["page_title"])
 
         score_url = self.score_location["page_url"] if self.score_location else None
         score_location = self.score_location
@@ -153,6 +156,7 @@ class LiquipediaMatchScraper:
             "summary": None,
             "match_url": None,
             "score_section": score_location["section_hint"] if score_location else None,
+            "score_title": score_title,
         }
 
         if selected_upcoming:
@@ -160,6 +164,7 @@ class LiquipediaMatchScraper:
                 {
                     "opponent_name": selected_upcoming.get("opponent"),
                     "opponent_logo": selected_upcoming.get("opponent_logo"),
+                    "team_logo": selected_upcoming.get("team_logo") or merged.get("team_logo"),
                     "date": selected_upcoming.get("datetime_text"),
                     "venue": selected_upcoming.get("venue"),
                     "tournament": selected_upcoming.get("tournament"),
@@ -184,6 +189,7 @@ class LiquipediaMatchScraper:
             score_url=score_url or (selected_upcoming.get("score_url") if selected_upcoming else self.team_location["page_url"]),
             score_section=merged.get("score_section"),
             entity_picture=entity_picture,
+            score_title=score_title,
             team_logo=merged.get("team_logo"),
             opponent_name=merged.get("opponent_name"),
             opponent_logo=merged.get("opponent_logo"),
@@ -504,7 +510,18 @@ class LiquipediaMatchScraper:
             if not opponent_rows:
                 continue
 
+            home_row = opponent_rows[0]
             opponent_row = opponent_rows[1] if len(opponent_rows) > 1 else opponent_rows[0]
+
+            home_name_node = home_row.select_one(".name a[href]") or home_row.select_one("a[href]")
+            home_name = self._text(home_name_node) if home_name_node else None
+            home_logo_node = home_row.find("img", src=True) or home_row.find("img", attrs={"data-src": True})
+            home_logo = None
+            if home_logo_node:
+                source = home_logo_node.get("src") or home_logo_node.get("data-src")
+                if source:
+                    home_logo = urljoin(base_url, source)
+
             opponent_name_node = opponent_row.select_one(".name a[href]") or opponent_row.select_one("a[href]")
             opponent_name = self._text(opponent_name_node) if opponent_name_node else None
             if opponent_name and team_key in self._normalize_key(opponent_name):
@@ -535,6 +552,8 @@ class LiquipediaMatchScraper:
                     "datetime_text": datetime_text,
                     "tournament": tournament,
                     "venue": stage or tournament,
+                    "team_name": home_name,
+                    "team_logo": home_logo,
                     "opponent": opponent_name,
                     "opponent_logo": opponent_logo,
                     "score_url": score_url,
@@ -578,13 +597,16 @@ class LiquipediaMatchScraper:
 
                 team_score, opponent_score = self._map_scores_to_teams(values, team_name, opponent, scores)
                 status = "POST" if team_score is not None and opponent_score is not None else "PRE"
+                image_urls = self._extract_image_urls(row)
+                resolved_team_logo = urljoin(base_url, image_urls[0]) if image_urls else team_logo
+                resolved_opponent_logo = urljoin(base_url, image_urls[1]) if len(image_urls) > 1 else self._extract_first_image_url(row, base_url)
 
                 return {
                     "status": status,
                     "team_name": team_name,
-                    "team_logo": team_logo,
+                    "team_logo": resolved_team_logo,
                     "opponent_name": opponent,
-                    "opponent_logo": self._extract_first_image_url(row, base_url),
+                    "opponent_logo": resolved_opponent_logo,
                     "team_score": team_score,
                     "opponent_score": opponent_score,
                     "date": row.get("date") or row.get("time") or row.get("datetime") or row.get("col_0"),
@@ -640,15 +662,19 @@ class LiquipediaMatchScraper:
         return None, None
 
     def _extract_first_image_url(self, row: dict[str, str], base_url: str) -> str | None:
+        image_urls = self._extract_image_urls(row)
+        if not image_urls:
+            return None
+
+        return urljoin(base_url, image_urls[-1])
+
+    @staticmethod
+    def _extract_image_urls(row: dict[str, str]) -> list[str]:
         images = row.get("__images")
         if not images:
-            return None
+            return []
 
-        candidates = [candidate.strip() for candidate in images.split(",") if candidate.strip()]
-        if not candidates:
-            return None
-
-        return urljoin(base_url, candidates[-1])
+        return [candidate.strip() for candidate in images.split(",") if candidate.strip()]
 
     def _select_score_url_from_row(
         self,
