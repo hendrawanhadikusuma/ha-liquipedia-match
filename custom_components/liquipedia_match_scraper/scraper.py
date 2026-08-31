@@ -152,7 +152,7 @@ class LiquipediaMatchScraper:
             "tournament": None,
             "summary": None,
             "match_url": None,
-            "score_section": self.score_location["section_hint"] or None,
+            "score_section": score_location["section_hint"] if score_location else None,
         }
 
         if selected_upcoming:
