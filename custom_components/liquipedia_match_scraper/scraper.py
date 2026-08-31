@@ -140,7 +140,7 @@ class LiquipediaMatchScraper:
                 else (selected_upcoming.get("tournament") if selected_upcoming else self.team_location["page_title"])
             )
         )
-        overview_venue = self._extract_overview_venue(overview_soup) if overview_soup else None
+        overview_venue = None
 
         if score_location:
             for candidate in (
@@ -156,6 +156,12 @@ class LiquipediaMatchScraper:
                     _LOGGER.debug("Liquipedia score fetch failed for %s: %s", candidate, err)
 
         score_soup = BeautifulSoup(score_html or "", "html.parser") if score_html else None
+
+        overview_venue = (
+            self._extract_overview_venue(score_soup)
+            if score_soup
+            else None
+        ) or (self._extract_overview_venue(overview_soup) if overview_soup else None)
 
         score_match = self._extract_score_match(
             score_soup,
@@ -436,11 +442,11 @@ class LiquipediaMatchScraper:
             if self._normalize_key(description.get_text(" ", strip=True)) != self._normalize_key("Venue"):
                 continue
 
-            container = description.find_parent("div")
-            if not container:
-                continue
-
-            value_container = container.find_next_sibling("div")
+            value_container = description.find_next_sibling("div")
+            if not value_container:
+                container = description.find_parent("div")
+                if container:
+                    value_container = container.find_next_sibling("div")
             if not value_container:
                 continue
 
