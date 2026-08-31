@@ -1,0 +1,15 @@
+{
+  "title": "Liquipedia Match Scraper",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Liquipedia Match Scraper",
+        "description": "Configure a team page. The score URL is derived automatically from the team's upcoming match row.",
+        "data": {
+          "team_url": "Team page URL",
+          "name": "Display name"
+        }
+      }
+    }
+  }
+}

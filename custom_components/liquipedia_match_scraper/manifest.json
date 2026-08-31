@@ -1,0 +1,10 @@
+{
+  "domain": "liquipedia_match_scraper",
+  "name": "Liquipedia Match Scraper",
+  "version": "0.1.0",
+  "documentation": "https://github.com/hendrawanhadikusuma/ha-accuweather-scraper",
+  "codeowners": ["@hendrawanhadikusuma"],
+  "config_flow": true,
+  "iot_class": "local_polling",
+  "requirements": ["beautifulsoup4>=4.12.3"]
+}
