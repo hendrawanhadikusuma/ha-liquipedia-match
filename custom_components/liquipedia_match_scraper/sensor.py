@@ -107,6 +107,7 @@ class LiquipediaMatchSensor(CoordinatorEntity[LiquipediaMatchCoordinator], Senso
             ATTR_TOURNAMENT: data.tournament,
             "league": data.score_title or data.tournament,
             "game": data.score_title or data.tournament,
+            "subtitle": data.score_title or data.tournament,
             ATTR_SUMMARY: data.summary,
             ATTR_MATCH_URL: data.match_url,
             "api_url": data.score_url,

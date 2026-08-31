@@ -335,6 +335,10 @@ class LiquipediaMatchScraper:
         return cls._clean_text(node.get_text(" ", strip=True))
 
     @classmethod
+    def _strip_liquipedia_suffix(cls, text: str) -> str:
+        return re.sub(r"\s*(?:-|\|)\s*Liquipedia.*$", "", text, flags=re.IGNORECASE).strip()
+
+    @classmethod
     def _extract_page_title(cls, soup: BeautifulSoup | None) -> str | None:
         if not soup:
             return None
@@ -343,13 +347,13 @@ class LiquipediaMatchScraper:
         if heading:
             text = cls._text(heading)
             if text:
-                return re.split(r"\s(?:-?|\|)\sLiquipedia", text, maxsplit=1)[0].strip() or text
+                return cls._strip_liquipedia_suffix(text) or text
 
         meta_title = soup.select_one('meta[property="og:title"]')
         if meta_title and meta_title.get("content"):
             text = cls._clean_text(meta_title.get("content"))
             if text:
-                return re.split(r"\s(?:-?|\|)\sLiquipedia", text, maxsplit=1)[0].strip() or text
+                return cls._strip_liquipedia_suffix(text) or text
 
         return None
 
@@ -423,6 +427,21 @@ class LiquipediaMatchScraper:
                 value = self._clean_text(link.get_text(" ", strip=True))
                 if value:
                     return value
+
+            lines = [self._clean_text(line) for line in value_container.get_text("\n", strip=True).splitlines()]
+            lines = [line for line in lines if line]
+
+            for line in lines:
+                normalized = self._normalize_key(line)
+                if not normalized:
+                    continue
+                if line.startswith("(") and line.endswith(")"):
+                    continue
+                if normalized in {self._normalize_key("Venue"), self._normalize_key("Location") }:
+                    continue
+                if normalized == self._normalize_key("To be announced"):
+                    continue
+                return line
 
             text = self._clean_text(value_container.get_text(" ", strip=True))
             if text:
