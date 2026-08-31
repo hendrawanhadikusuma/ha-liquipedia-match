@@ -36,6 +36,7 @@ class LiquipediaMatchData:
     team_url: str
     score_url: str
     score_section: str | None
+    entity_picture: str | None = None
     team_logo: str | None = None
     opponent_name: str | None = None
     opponent_logo: str | None = None
@@ -79,6 +80,7 @@ class LiquipediaMatchScraper:
                 team_url=self.team_location["page_url"],
                 score_url=self.score_location["page_url"] if self.score_location else self.team_location["page_url"],
                 score_section=self.score_location["section_hint"] if self.score_location else None,
+                entity_picture=None,
                 error=str(last_error) if last_error else "Unable to fetch Liquipedia pages",
             )
 
@@ -89,6 +91,12 @@ class LiquipediaMatchScraper:
         team_logo = self._extract_logo_url(team_soup, self.team_location["page_url"]) if team_soup else None
         upcoming_matches = self._extract_upcoming_matches(team_soup, team_name, self.team_location["page_url"]) if team_soup else []
         selected_upcoming = upcoming_matches[0] if upcoming_matches else None
+        entity_picture = self._select_entity_picture(
+            team_logo,
+            selected_upcoming,
+            None,
+            self.team_location["page_url"],
+        )
 
         score_url = self.score_location["page_url"] if self.score_location else None
         score_location = self.score_location
@@ -162,12 +170,20 @@ class LiquipediaMatchScraper:
         if score_match:
             merged.update({key: value for key, value in score_match.items() if value is not None})
 
+        entity_picture = self._select_entity_picture(
+            merged.get("team_logo"),
+            selected_upcoming,
+            score_match,
+            score_location["page_url"] if score_location else self.team_location["page_url"],
+        )
+
         return LiquipediaMatchData(
             status=merged["status"],
             team_name=merged["team_name"],
             team_url=self.team_location["page_url"],
             score_url=score_url or (selected_upcoming.get("score_url") if selected_upcoming else self.team_location["page_url"]),
             score_section=merged.get("score_section"),
+            entity_picture=entity_picture,
             team_logo=merged.get("team_logo"),
             opponent_name=merged.get("opponent_name"),
             opponent_logo=merged.get("opponent_logo"),
@@ -184,6 +200,7 @@ class LiquipediaMatchScraper:
                 "score": score_location,
                 "selected_upcoming": selected_upcoming,
                 "score_match": score_match,
+                "entity_picture": entity_picture,
             },
             error=str(last_error) if last_error else None,
         )
@@ -298,13 +315,54 @@ class LiquipediaMatchScraper:
         if not soup:
             return None
 
-        meta = soup.select_one('meta[property="og:image"]')
-        if meta and meta.get("content"):
-            return urljoin(base_url, meta.get("content"))
+        for selector in (
+            'meta[property="og:image"]',
+            'meta[name="twitter:image"]',
+            'link[rel="image_src"]',
+        ):
+            meta = soup.select_one(selector)
+            content = meta.get("content") if meta else meta.get("href") if meta else None
+            if content:
+                return urljoin(base_url, content)
 
-        image = soup.select_one("table img[src]") or soup.select_one("aside img[src]")
-        if image and image.get("src"):
-            return urljoin(base_url, image.get("src"))
+        for image in soup.select("table img, aside img, img"):
+            source = image.get("src") or image.get("data-src")
+            if not source:
+                srcset = image.get("srcset")
+                if srcset:
+                    source = srcset.split(",")[0].strip().split(" ")[0]
+            if source:
+                return urljoin(base_url, source)
+
+        return None
+
+    def _select_entity_picture(
+        self,
+        team_logo: str | None,
+        selected_upcoming: dict[str, Any] | None,
+        score_match: dict[str, Any] | None,
+        base_url: str,
+    ) -> str | None:
+        candidates = [
+            team_logo,
+            selected_upcoming.get("opponent_logo") if selected_upcoming else None,
+            score_match.get("team_logo") if score_match else None,
+            score_match.get("opponent_logo") if score_match else None,
+        ]
+
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        if selected_upcoming and isinstance(selected_upcoming.get("raw"), dict):
+            image = self._extract_first_image_url(selected_upcoming["raw"], base_url)
+            if image:
+                return image
+
+        if score_match and isinstance(score_match.get("raw"), dict):
+            image = self._extract_first_image_url(score_match["raw"], base_url)
+            if image:
+                return image
 
         return None
 
@@ -378,6 +436,10 @@ class LiquipediaMatchScraper:
         return rows
 
     def _extract_upcoming_matches(self, soup: BeautifulSoup, team_name: str, base_url: str) -> list[dict[str, Any]]:
+        carousel_matches = self._extract_upcoming_matches_from_carousel(soup, team_name, base_url)
+        if carousel_matches:
+            return carousel_matches
+
         table = self._section_table(soup, "Upcoming Matches")
         if not table:
             return []
@@ -419,6 +481,65 @@ class LiquipediaMatchScraper:
                     "score_url": score_url,
                     "summary": " | ".join(values),
                     "raw": row,
+                }
+            )
+
+        return upcoming_matches
+
+    def _extract_upcoming_matches_from_carousel(
+        self,
+        soup: BeautifulSoup,
+        team_name: str,
+        base_url: str,
+    ) -> list[dict[str, Any]]:
+        carousel_items = soup.select(".carousel-item")
+        if not carousel_items:
+            return []
+
+        upcoming_matches: list[dict[str, Any]] = []
+        team_key = self._normalize_key(team_name)
+
+        for item in carousel_items:
+            opponent_rows = item.select(".match-info-opponent-row")
+            if not opponent_rows:
+                continue
+
+            opponent_row = opponent_rows[1] if len(opponent_rows) > 1 else opponent_rows[0]
+            opponent_name_node = opponent_row.select_one(".name a[href]") or opponent_row.select_one("a[href]")
+            opponent_name = self._text(opponent_name_node) if opponent_name_node else None
+            if opponent_name and team_key in self._normalize_key(opponent_name):
+                opponent_name = None
+
+            opponent_logo_node = opponent_row.find("img", src=True) or opponent_row.find("img", attrs={"data-src": True})
+            opponent_logo = None
+            if opponent_logo_node:
+                source = opponent_logo_node.get("src") or opponent_logo_node.get("data-src")
+                if source:
+                    opponent_logo = urljoin(base_url, source)
+
+            tournament_node = item.select_one(".match-info-tournament a[href]")
+            tournament = self._text(item.select_one(".match-info-tournament")) if item.select_one(".match-info-tournament") else None
+            datetime_node = item.select_one(".match-info-countdown")
+            datetime_text = self._text(datetime_node) if datetime_node else None
+            stage_node = item.select_one(".match-info-stage")
+            stage = self._text(stage_node) if stage_node else None
+
+            score_url = None
+            if tournament_node and tournament_node.get("href"):
+                score_url = urljoin(base_url, tournament_node.get("href"))
+
+            summary = self._clean_text(item.get_text(" ", strip=True))
+
+            upcoming_matches.append(
+                {
+                    "datetime_text": datetime_text,
+                    "tournament": tournament,
+                    "venue": stage or tournament,
+                    "opponent": opponent_name,
+                    "opponent_logo": opponent_logo,
+                    "score_url": score_url,
+                    "summary": summary,
+                    "raw": item,
                 }
             )
 
@@ -471,6 +592,7 @@ class LiquipediaMatchScraper:
                     "tournament": row.get("tournament") or section_hint,
                     "summary": " | ".join(values),
                     "match_url": None,
+                    "raw": row,
                 }
 
         return None

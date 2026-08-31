@@ -2,7 +2,7 @@
   "domain": "liquipedia_match_scraper",
   "name": "Liquipedia Match Scraper",
   "version": "0.1.0",
-  "documentation": "https://github.com/hendrawanhadikusuma/ha-accuweather-scraper",
+  "documentation": "https://github.com/hendrawanhadikusuma/ha-liquipedia-match",
   "codeowners": ["@hendrawanhadikusuma"],
   "config_flow": true,
   "iot_class": "local_polling",

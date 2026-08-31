@@ -11,6 +11,8 @@ DEFAULT_SCAN_INTERVAL = timedelta(minutes=15)
 
 ATTR_TEAM_NAME = "team_name"
 ATTR_TEAM_LOGO = "team_logo"
+ATTR_ENTITY_PICTURE = "entity_picture"
+ATTR_IMAGE = "image"
 ATTR_OPPONENT_NAME = "opponent_name"
 ATTR_OPPONENT_LOGO = "opponent_logo"
 ATTR_TEAM_SCORE = "team_score"

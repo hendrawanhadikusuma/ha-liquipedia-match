@@ -10,6 +10,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     ATTR_DATE,
     ATTR_ERROR,
+    ATTR_ENTITY_PICTURE,
+    ATTR_IMAGE,
     ATTR_MATCH_URL,
     ATTR_OPPONENT_LOGO,
     ATTR_OPPONENT_NAME,
@@ -65,7 +67,7 @@ class LiquipediaMatchSensor(CoordinatorEntity[LiquipediaMatchCoordinator], Senso
     def entity_picture(self):
         if not self.coordinator.data:
             return None
-        return self.coordinator.data.opponent_logo or self.coordinator.data.team_logo
+        return self.coordinator.data.entity_picture or self.coordinator.data.team_logo or self.coordinator.data.opponent_logo
 
     @property
     def extra_state_attributes(self):
@@ -78,17 +80,37 @@ class LiquipediaMatchSensor(CoordinatorEntity[LiquipediaMatchCoordinator], Senso
 
         return {
             ATTR_STATUS: data.status,
+            ATTR_ENTITY_PICTURE: data.entity_picture,
+            ATTR_IMAGE: data.entity_picture,
+            "friendly_name": self._attr_name,
             ATTR_TEAM_NAME: data.team_name,
+            "home_name": data.team_name,
             ATTR_TEAM_LOGO: data.team_logo,
+            "home_logo": data.team_logo,
+            "logo": data.team_logo,
             ATTR_OPPONENT_NAME: data.opponent_name,
+            "away_name": data.opponent_name,
             ATTR_OPPONENT_LOGO: data.opponent_logo,
+            "away_logo": data.opponent_logo,
+            "opponent_image": data.opponent_logo,
             ATTR_TEAM_SCORE: data.team_score,
+            "home_score": data.team_score,
             ATTR_OPPONENT_SCORE: data.opponent_score,
+            "away_score": data.opponent_score,
             ATTR_DATE: data.date,
+            "start_time": data.date,
+            "event_time": data.date,
+            "last_update": data.date,
             ATTR_VENUE: data.venue,
+            "location": data.venue,
+            "event": data.tournament,
             ATTR_TOURNAMENT: data.tournament,
+            "league": data.tournament,
+            "game": "Mobile Legends",
             ATTR_SUMMARY: data.summary,
             ATTR_MATCH_URL: data.match_url,
+            "api_url": data.score_url,
+            "attribution": "Data from Liquipedia",
             ATTR_TEAM_URL: data.team_url,
             ATTR_SCORE_URL: data.score_url,
             ATTR_SCORE_SECTION: data.score_section,
