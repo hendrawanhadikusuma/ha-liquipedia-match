@@ -339,6 +339,28 @@ class LiquipediaMatchScraper:
         return re.sub(r"\s*(?:-|\|)\s*Liquipedia.*$", "", text, flags=re.IGNORECASE).strip()
 
     @classmethod
+    def _is_label_like(cls, text: str) -> bool:
+        cleaned = cls._clean_text(text)
+        if not cleaned:
+            return True
+
+        if cleaned.endswith(":"):
+            return True
+
+        normalized = cls._normalize_key(cleaned)
+        if normalized in {
+            cls._normalize_key("Venue"),
+            cls._normalize_key("Location"),
+            cls._normalize_key("Format"),
+            cls._normalize_key("Date"),
+            cls._normalize_key("Time"),
+            cls._normalize_key("Tournament"),
+        }:
+            return True
+
+        return False
+
+    @classmethod
     def _extract_page_title(cls, soup: BeautifulSoup | None) -> str | None:
         if not soup:
             return None
@@ -432,20 +454,19 @@ class LiquipediaMatchScraper:
             lines = [line for line in lines if line]
 
             for line in lines:
-                normalized = self._normalize_key(line)
-                if not normalized:
+                if self._is_label_like(line):
                     continue
                 if line.startswith("(") and line.endswith(")"):
                     continue
-                if normalized in {self._normalize_key("Venue"), self._normalize_key("Location") }:
-                    continue
-                if normalized == self._normalize_key("To be announced"):
-                    continue
                 return line
 
-            text = self._clean_text(value_container.get_text(" ", strip=True))
-            if text:
-                return text
+            for fragment in value_container.stripped_strings:
+                candidate = self._clean_text(fragment)
+                if self._is_label_like(candidate):
+                    continue
+                if candidate.startswith("(") and candidate.endswith(")"):
+                    continue
+                return candidate
 
         return None
 
