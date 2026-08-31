@@ -63,6 +63,8 @@ The sensor also exposes attributes such as:
 - `upcoming_match` and `upcoming_matches`
 - `error` when fetch/parsing fails
 
+By default, the sensor refreshes every 5 minutes.
+
 Example response:
 
 ```yaml

@@ -7,7 +7,7 @@ DOMAIN = "liquipedia_match_scraper"
 CONF_TEAM_URL = "team_url"
 CONF_SCORE_URL = "score_url"
 
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=15)
+DEFAULT_SCAN_INTERVAL = timedelta(minutes=5)
 
 ATTR_TEAM_NAME = "team_name"
 ATTR_TEAM_LOGO = "team_logo"
